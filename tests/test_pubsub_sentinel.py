@@ -161,3 +161,10 @@ def test_multi_event_loop_garbage_collection(channel_layer):
     assert len(channel_layer._layers.values()) == 0
     async_to_sync(test_send_receive)(channel_layer)
     assert len(channel_layer._layers.values()) == 0
+
+
+@pytest.mark.asyncio
+async def test_receive_hang(channel_layer):
+    channel_name = await channel_layer.new_channel(prefix="test-channel")
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(channel_layer.receive(channel_name), timeout=1)

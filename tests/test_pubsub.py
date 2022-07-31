@@ -204,3 +204,10 @@ async def test_proxied_methods_coroutine_check(channel_layer):
     # below Python 3.8.
     if sys.version_info >= (3, 8):
         assert inspect.iscoroutinefunction(channel_layer.send)
+
+
+@pytest.mark.asyncio
+async def test_receive_hang(channel_layer):
+    channel_name = await channel_layer.new_channel(prefix="test-channel")
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(channel_layer.receive(channel_name), timeout=1)

@@ -4,7 +4,6 @@ import logging
 import types
 import uuid
 
-import async_timeout
 import msgpack
 from redis import asyncio as aioredis
 
@@ -287,8 +286,8 @@ class RedisSingleShardConnection:
     async def unsubscribe(self, channel):
         if channel in self._subscribed_to:
             self._subscribed_to.remove(channel)
-            conn = await self._get_sub_conn()
-            await conn.unsubscribe(channel)
+            if self._receiver is not None and self._receiver.subscribed:
+                await self._receiver.unsubscribe(channel)
 
     async def flush(self):
         for task in [self._keepalive_task, self._receive_task]:
@@ -374,36 +373,36 @@ class RedisSingleShardConnection:
                         await asyncio.sleep(1)
                 self._receiver = self._sub_conn.pubsub()
                 if not self._receiver.subscribed:
-                    await self._receiver.subscribe(*self._subscribed_to)
+                    if self._subscribed_to:
+                        await self._receiver.subscribe(*self._subscribed_to)
                     self._notify_consumers(self.channel_layer.on_reconnect)
                 self._receive_task = asyncio.ensure_future(self._do_receiving())
             return self._sub_conn
 
     async def _do_receiving(self):
         while True:
-            try:
-                async with async_timeout.timeout(1):
-                    message = await self._receiver.get_message(
-                        ignore_subscribe_messages=True
-                    )
-                    if message is not None:
-                        name = message["channel"]
-                        data = message["data"]
-                        if isinstance(name, bytes):
-                            # Reversing what happens here:
-                            #   https://github.com/aio-libs/aioredis-py/blob/8a207609b7f8a33e74c7c8130d97186e78cc0052/aioredis/util.py#L17
-                            name = name.decode()
-                        if name in self.channel_layer.channels:
-                            self.channel_layer.channels[name].put_nowait(data)
-                        elif name in self.channel_layer.groups:
-                            for channel_name in self.channel_layer.groups[name]:
-                                if channel_name in self.channel_layer.channels:
-                                    self.channel_layer.channels[
-                                        channel_name
-                                    ].put_nowait(data)
-                    await asyncio.sleep(0.01)
-            except asyncio.TimeoutError:
-                pass
+            if self._receiver.subscribed:
+                message = await self._receiver.get_message(
+                    ignore_subscribe_messages=True, timeout=1
+                )
+                if message is not None:
+                    name = message["channel"]
+                    data = message["data"]
+                    if isinstance(name, bytes):
+                        # Reversing what happens here:
+                        #   https://github.com/aio-libs/aioredis-py/blob/8a207609b7f8a33e74c7c8130d97186e78cc0052/aioredis/util.py#L17
+                        name = name.decode()
+                    if name in self.channel_layer.channels:
+                        self.channel_layer.channels[name].put_nowait(data)
+                    elif name in self.channel_layer.groups:
+                        for channel_name in self.channel_layer.groups[name]:
+                            if channel_name in self.channel_layer.channels:
+                                self.channel_layer.channels[channel_name].put_nowait(
+                                    data
+                                )
+            else:
+                logger.warn("_do_receiving does not have subscribed receiver")
+                await asyncio.sleep(1)
 
     def _notify_consumers(self, mtype):
         if mtype is not None:
@@ -460,5 +459,7 @@ class RedisSingleShardConnection:
             await asyncio.sleep(1)
             try:
                 await self._get_sub_conn()
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 logger.exception("Unexpected exception in keepalive task:")
