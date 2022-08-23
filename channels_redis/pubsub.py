@@ -401,7 +401,7 @@ class RedisSingleShardConnection:
                                     data
                                 )
             else:
-                logger.warn("_do_receiving does not have subscribed receiver")
+                logger.warning("_do_receiving does not have subscribed receiver")
                 await asyncio.sleep(1)
 
     def _notify_consumers(self, mtype):
@@ -456,10 +456,8 @@ class RedisSingleShardConnection:
         connection check will be beneficial in the same way as it is for a low-traffic site.
         """
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(3)
             try:
                 await self._get_sub_conn()
-            except asyncio.CancelledError:
-                raise
             except Exception:
                 logger.exception("Unexpected exception in keepalive task:")
