@@ -75,7 +75,7 @@ SSL connections that are self-signed (ex: Heroku):
 
     {
         "hosts":[
-            "address": "rediss://user@host:port",  // "REDIS_TLS_URL"
+            "address": "rediss://user@host:port",  # "REDIS_TLS_URL"
             "ssl_cert_reqs": None
         ]
     }
